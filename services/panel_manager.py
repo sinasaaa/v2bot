@@ -25,8 +25,6 @@ class BasePanelManager(ABC):
     async def __aenter__(self):
         """Async context manager entry."""
         self.session = httpx.AsyncClient(verify=False, timeout=10.0)
-        # We don't login here automatically, login is called by the specific implementation if needed
-        # This makes the context manager more flexible.
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -56,9 +54,6 @@ class MarzbanPanel(BasePanelManager):
 
     async def get_inbounds(self) -> List[Dict[str, Any]]:
         if not await self.login(): return []
-        # In Marzban, "users" can act as templates/plans
-        # This is a simplified logic, real logic might need to target specific user templates
-        # For now, returning a placeholder
         print("Marzban get_inbounds is currently a placeholder.")
         return [{"id": 1, "remark": "پلن پیش‌فرض مرزبان"}] 
 
