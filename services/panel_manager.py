@@ -6,7 +6,6 @@ from typing import Optional, List, Dict, Any
 
 # ===== BASE PANEL MANAGER (Interface) =====
 class BasePanelManager(ABC):
-    """Abstract base class for all panel managers."""
     def __init__(self, api_url: str, username: str, password: str):
         self.api_url = api_url
         self.username = username
@@ -15,12 +14,10 @@ class BasePanelManager(ABC):
 
     @abstractmethod
     async def login(self) -> bool:
-        """Logs into the panel and returns True on success, False otherwise."""
         pass
 
     @abstractmethod
     async def get_inbounds(self) -> List[Dict[str, Any]]:
-        """Fetches a list of inbounds/plans from the panel."""
         pass
     
     async def __aenter__(self):
@@ -34,9 +31,7 @@ class BasePanelManager(ABC):
 
 # ===== MARZBAN PANEL MANAGER =====
 class MarzbanPanel(BasePanelManager):
-    """Manager for Marzban panels."""
     async def login(self) -> bool:
-        # ... (Implementation remains the same)
         if not self.session: return False
         try:
             api_url = self.api_url.rstrip('/')
@@ -57,9 +52,11 @@ class MarzbanPanel(BasePanelManager):
 
 # ===== SANAEI (X-UI) PANEL MANAGER =====
 class SanaeiPanel(BasePanelManager):
-    """Manager for Sanaei (X-UI) panels."""
     async def login(self) -> bool:
-        if not self.session: return False
+        if not self.session:
+            print("[SanaeiPanel] Login failed: session is not initialized.")
+            return False
+        
         print("[SanaeiPanel] Attempting to login...")
         try:
             base_url = self.api_url.rstrip('/')
@@ -72,10 +69,10 @@ class SanaeiPanel(BasePanelManager):
                 if response.json().get("success") is True: is_successful_body = True
             except Exception: pass
 
-            has_cookie = "session" in response.cookies or "x-ui" in response.cookies
+            has_cookie = "session" in self.session.cookies or "x-ui" in self.session.cookies
             
             if response.status_code == 200 and (is_successful_body or has_cookie):
-                print("[SanaeiPanel] Login SUCCESSFUL.")
+                print("[SanaeiPanel] Login SUCCESSFUL. Cookies are now stored in session.")
                 return True
             
             print(f"[SanaeiPanel] Login FAILED. Status: {response.status_code}, Response: {response.text}")
@@ -85,42 +82,45 @@ class SanaeiPanel(BasePanelManager):
             return False
 
     async def get_inbounds(self) -> List[Dict[str, Any]]:
-        print("[SanaeiPanel] Attempting to get inbounds...")
+        # The context manager in user_handlers.py ensures session is created.
+        # This method assumes we are already in a context.
+        if not self.session:
+             print("[SanaeiPanel] get_inbounds failed because session is not initialized.")
+             return []
+
         if not await self.login():
-            print("[SanaeiPanel] get_inbounds failed because login failed.")
+            print("[SanaeiPanel] get_inbounds failed because login was unsuccessful.")
             return []
-        
-        if not self.session: return []
         
         try:
             base_url = self.api_url.rstrip('/')
             inbounds_url = f"{base_url}/panel/api/inbounds/list"
             print(f"[SanaeiPanel] Fetching inbounds from URL: {inbounds_url}")
             
+            # The session now holds the login cookies, so this request should be authenticated.
             response = await self.session.get(inbounds_url)
-            print(f"[SanaeiPanel] Get inbounds response status: {response.status_code}")
             
-            if response.status_code == 200:
-                response_data = response.json()
-                print(f"[SanaeiPanel] Get inbounds raw response: {json.dumps(response_data, indent=2)}")
-                
-                if response_data.get("success"):
-                    inbounds_list = response_data.get("obj", [])
-                    print(f"[SanaeiPanel] Found {len(inbounds_list)} inbounds.")
-                    return inbounds_list
-                else:
-                    print("[SanaeiPanel] Get inbounds request was not successful according to JSON body.")
-                    return []
+            print(f"[SanaeiPanel] Get inbounds response status: {response.status_code}")
+            print(f"[SanaeiPanel] Get inbounds raw response text: {response.text}") # Print raw text for debugging
+            
+            # Now, try to parse JSON
+            response_data = response.json()
+            if response_data.get("success"):
+                inbounds_list = response_data.get("obj", [])
+                print(f"[SanaeiPanel] Successfully parsed {len(inbounds_list)} inbounds.")
+                return inbounds_list
             else:
-                 print(f"[SanaeiPanel] Get inbounds returned non-200 status. Response: {response.text}")
-                 return []
+                print("[SanaeiPanel] Get inbounds request was not successful according to JSON body.")
+                return []
+        except json.JSONDecodeError as e:
+            print(f"[SanaeiPanel] JSONDecodeError: Failed to parse response as JSON. Error: {e}")
+            return []
         except Exception as e:
             print(f"[SanaeiPanel] Get inbounds EXCEPTION: {e}")
             return []
 
 # ===== FACTORY FUNCTION =====
 def get_panel_manager(panel_type: str, api_url: str, username: str, password: str) -> Optional[BasePanelManager]:
-    # ... (Implementation remains the same)
     panel_classes = { "marzban": MarzbanPanel, "sanaei": SanaeiPanel }
     manager_class = panel_classes.get(panel_type)
     return manager_class(api_url, username, password) if manager_class else None
