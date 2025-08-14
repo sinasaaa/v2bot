@@ -1,6 +1,6 @@
 # ===== IMPORTS & DEPENDENCIES =====
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
-from telegram.constants import ParseMode # <<<--- THE FIX IS HERE
+from telegram.constants import ParseMode
 from telegram.ext import (
     ContextTypes,
     ConversationHandler,
@@ -18,7 +18,6 @@ from models.panel import PanelType
 from services.panel_manager import get_panel_manager
 
 # ===== CONVERSATION STATES =====
-# Define states for the conversation. Each state represents a step in the conversation.
 (
     PANEL_NAME,
     PANEL_TYPE,
@@ -30,7 +29,6 @@ from services.panel_manager import get_panel_manager
 
 # ===== HELPER FUNCTIONS for Conversation =====
 async def start_add_panel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Starts the conversation to add a new panel."""
     query = update.callback_query
     await query.answer()
     
@@ -46,7 +44,6 @@ async def start_add_panel_conversation(update: Update, context: ContextTypes.DEF
 
 
 async def receive_panel_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receives the panel name and asks for the panel type."""
     panel_name = update.message.text
     context.user_data['new_panel']['name'] = panel_name
 
@@ -61,11 +58,12 @@ async def receive_panel_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def receive_panel_type(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receives panel type and asks for the URL."""
     panel_type_str = update.message.text
     try:
         panel_type = PanelType(panel_type_str)
-        context.user_data['new_panel']['type'] = panel_type
+        # <<<--- THE FIRST FIX IS HERE ---<<<
+        context.user_data['new_panel']['panel_type'] = panel_type
+        
         await update.message.reply_text(
             f"نوع پنل: '{panel_type.value}' ذخیره شد.\n\n"
             "حالا **آدرس کامل (URL)** پنل را وارد کنید (مثلا: https://panel.example.com):",
@@ -78,8 +76,9 @@ async def receive_panel_type(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def receive_panel_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receives panel URL and asks for the username."""
-    context.user_data['new_panel']['url'] = update.message.text
+    # <<<--- THE SECOND FIX IS HERE ---<<<
+    context.user_data['new_panel']['api_url'] = update.message.text
+    
     await update.message.reply_text(
         "آدرس پنل ذخیره شد.\n\n"
         "حالا **نام کاربری (username)** برای ورود به پنل را وارد کنید:"
@@ -88,7 +87,6 @@ async def receive_panel_url(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 async def receive_panel_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receives username and asks for the password."""
     context.user_data['new_panel']['username'] = update.message.text
     await update.message.reply_text(
         "نام کاربری ذخیره شد.\n\n"
@@ -98,15 +96,14 @@ async def receive_panel_username(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def receive_panel_password_and_validate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receives password, tests connection, saves the panel, and ends conversation."""
     context.user_data['new_panel']['password'] = update.message.text
     panel_data = context.user_data['new_panel']
     
     await update.message.reply_text("اطلاعات دریافت شد. در حال تلاش برای اتصال به پنل...")
 
     panel_manager = get_panel_manager(
-        panel_type=panel_data['type'].value,
-        api_url=panel_data['url'],
+        panel_type=panel_data['panel_type'].value,
+        api_url=panel_data['api_url'],
         username=panel_data['username'],
         password=panel_data['password'],
     )
@@ -131,7 +128,6 @@ async def receive_panel_password_and_validate(update: Update, context: ContextTy
     
     db: Session = SessionLocal()
     try:
-        # Using dictionary unpacking for cleaner code
         panel_crud.create_panel(db=db, **panel_data)
         await update.message.reply_text(
             f"✅ پنل '{panel_data['name']}' با موفقیت در دیتابیس ذخیره شد.",
@@ -145,31 +141,25 @@ async def receive_panel_password_and_validate(update: Update, context: ContextTy
 
     return ConversationHandler.END
 
-
+# ... (rest of the file remains the same)
 async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Cancels and ends the conversation."""
     if 'new_panel' in context.user_data:
         del context.user_data['new_panel']
-        
     await update.message.reply_text(
         "فرآیند افزودن پنل لغو شد. به منوی مدیریت بازگشتید.",
         reply_markup=get_admin_main_menu_keyboard()
     )
     return ConversationHandler.END
 
-
-# ===== MAIN ADMIN BUTTON HANDLER =====
 async def admin_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
-
     if data == "admin_manage_panels":
         await query.edit_message_text(
             text="لطفا یکی از گزینه‌های زیر را برای مدیریت پنل‌ها انتخاب کنید:",
             reply_markup=get_panel_management_keyboard()
         )
-        
     elif data == "admin_list_panels":
         db: Session = SessionLocal()
         try:
@@ -180,20 +170,8 @@ async def admin_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                     reply_markup=get_panel_management_keyboard()
                 )
                 return
-
             text = "📋 **لیست پنل‌های ذخیره شده:**\n" + ("-"*25) + "\n\n"
             for panel in panels:
                 text += f"🔹 **نام:** `{panel.name}`\n"
                 text += f"   **نوع:** `{panel.panel_type.value}`\n"
-                text += f"   **آدرس:** `{panel.api_url}`\n\n"
-            
-            await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=get_panel_management_keyboard())
-
-        finally:
-            db.close()
-            
-    elif data == "admin_menu":
-        await query.edit_message_text(
-            text="شما به منوی اصلی ادمین بازگشتید.",
-            reply_markup=get_admin_main_menu_keyboard()
-        )
+                text += f"   **آدرس:** `{panel.api_
