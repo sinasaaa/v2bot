@@ -1,4 +1,4 @@
-# ===== IMPORTS & DEPENDENCIES =====
+// ===== IMPORTS & DEPENDENCIES =====
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.constants import ParseMode
 from telegram.ext import (
@@ -122,4 +122,68 @@ async def receive_panel_password_and_validate(update: Update, context: ContextTy
         if 'new_panel' in context.user_data: del context.user_data['new_panel']
         return ConversationHandler.END
         
-    await update.message.reply_text("✅ اتصال
+    await update.message.reply_text("✅ اتصال با موفقیت برقرار شد. در حال ذخیره در دیتابیس...")
+    
+    db: Session = SessionLocal()
+    try:
+        panel_crud.create_panel(db=db, **panel_data)
+        await update.message.reply_text(
+            f"✅ پنل '{panel_data['name']}' با موفقیت در دیتابیس ذخیره شد.",
+            reply_markup=get_admin_main_menu_keyboard()
+        )
+    except Exception as e:
+        await update.message.reply_text(f"❌ خطایی در ذخیره پنل رخ داد: {e}")
+    finally:
+        db.close()
+        if 'new_panel' in context.user_data: del context.user_data['new_panel']
+
+    return ConversationHandler.END
+
+
+async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    if 'new_panel' in context.user_data:
+        del context.user_data['new_panel']
+    await update.message.reply_text(
+        "فرآیند افزودن پنل لغو شد. به منوی مدیریت بازگشتید.",
+        reply_markup=get_admin_main_menu_keyboard()
+    )
+    return ConversationHandler.END
+
+
+# ===== MAIN ADMIN BUTTON HANDLER =====
+async def admin_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    if data == "admin_manage_panels":
+        await query.edit_message_text(
+            text="لطفا یکی از گزینه‌های زیر را برای مدیریت پنل‌ها انتخاب کنید:",
+            reply_markup=get_panel_management_keyboard()
+        )
+    elif data == "admin_list_panels":
+        db: Session = SessionLocal()
+        try:
+            panels = panel_crud.get_panels(db)
+            if not panels:
+                await query.edit_message_text(
+                    text="هیچ پنلی در سیستم ذخیره نشده است.",
+                    reply_markup=get_panel_management_keyboard()
+                )
+                return
+            
+            text = "📋 **لیست پنل‌های ذخیره شده:**\n" + ("-"*25) + "\n\n"
+            for panel in panels:
+                text += f"🔹 **نام:** `{panel.name}`\n"
+                text += f"   **نوع:** `{panel.panel_type.value}`\n"
+                # <<<--- THE FIX IS HERE ---<<<
+                text += f"   **آدرس:** `{panel.api_url}`\n\n"
+            
+            await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=get_panel_management_keyboard())
+
+        finally:
+            db.close()
+    elif data == "admin_menu":
+        await query.edit_message_text(
+            text="شما به منوی اصلی ادمین بازگشتید.",
+            reply_markup=get_admin_main_menu_keyboard()
+        )
