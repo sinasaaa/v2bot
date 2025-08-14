@@ -1,10 +1,12 @@
 // ===== IMPORTS & DEPENDENCIES =====
 from telegram import Update
 from telegram.ext import ContextTypes
-from .decorators import admin_required
+from sqlalchemy.orm import Session
 
-# Note: We will need a database session to save users. 
-# This will be added in the next step. For now, we just show the logic.
+from .decorators import admin_required
+from core.database import SessionLocal
+from crud import user_crud
+from core.config import settings
 
 # ===== CORE BUSINESS LOGIC (Bot Commands) =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -17,22 +19,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not user:
         return
 
-    #
-    # --- DATABASE LOGIC (to be implemented with a real session) ---
-    # 1. Check if user with `user.id` exists in the database.
-    # 2. If not, create a new User entry:
-    #    new_user = User(
-    #        telegram_id=user.id,
-    #        first_name=user.first_name,
-    #        last_name=user.last_name,
-    #        username=user.username,
-    #        is_admin=(user.id == settings.ADMIN_USER_ID) # Set admin status on first join
-    #    )
-    #    db.add(new_user)
-    #    db.commit()
-    #    print(f"New user {user.username} registered.")
-    # -----------------------------------------------------------------
-    #
+    # Get a database session
+    db: Session = SessionLocal()
+    try:
+        # Check if the user is the main admin
+        is_admin = (user.id == settings.ADMIN_USER_ID)
+        
+        # Create user in the database if they don't exist
+        user_crud.create_user(db, telegram_user=user, is_admin=is_admin)
+    finally:
+        # Always close the session
+        db.close()
     
     welcome_message = (
         f"سلام {user.mention_html()}! 👋\n\n"
