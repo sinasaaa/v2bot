@@ -1,5 +1,6 @@
 # ===== IMPORTS & DEPENDENCIES =====
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, ParseMode
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram.constants import ParseMode # <<<--- THE FIX IS HERE
 from telegram.ext import (
     ContextTypes,
     ConversationHandler,
@@ -130,6 +131,7 @@ async def receive_panel_password_and_validate(update: Update, context: ContextTy
     
     db: Session = SessionLocal()
     try:
+        # Using dictionary unpacking for cleaner code
         panel_crud.create_panel(db=db, **panel_data)
         await update.message.reply_text(
             f"✅ پنل '{panel_data['name']}' با موفقیت در دیتابیس ذخیره شد.",
