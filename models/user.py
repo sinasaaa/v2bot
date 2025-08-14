@@ -1,4 +1,4 @@
-// ===== IMPORTS & DEPENDENCIES =====
+# ===== IMPORTS & DEPENDENCIES =====
 from sqlalchemy import BigInteger, String, Boolean
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 import datetime
