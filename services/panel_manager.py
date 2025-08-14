@@ -25,12 +25,13 @@ class BasePanelManager(ABC):
     async def __aenter__(self):
         """Async context manager entry."""
         self.session = httpx.AsyncClient(verify=False, timeout=10.0)
-        await self.login()
+        # We don't login here automatically, login is called by the specific implementation if needed
+        # This makes the context manager more flexible.
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Async context manager exit."""
-        if self.session:
+        if self.session and not self.session.is_closed:
             await self.session.aclose()
 
 
@@ -54,10 +55,13 @@ class MarzbanPanel(BasePanelManager):
             return False
 
     async def get_inbounds(self) -> List[Dict[str, Any]]:
-        if not self.session: return []
-        # In Marzban, "users" act as templates/plans
+        if not await self.login(): return []
+        # In Marzban, "users" can act as templates/plans
         # This is a simplified logic, real logic might need to target specific user templates
-        return [{"id": 1, "remark": "پلن پیش‌فرض مرزبان"}] # Placeholder
+        # For now, returning a placeholder
+        print("Marzban get_inbounds is currently a placeholder.")
+        return [{"id": 1, "remark": "پلن پیش‌فرض مرزبان"}] 
+
 
 # ===== SANAEI (X-UI) PANEL MANAGER =====
 class SanaeiPanel(BasePanelManager):
@@ -70,15 +74,24 @@ class SanaeiPanel(BasePanelManager):
             data = {"username": self.username, "password": self.password}
             response = await self.session.post(login_url, data=data)
             
-            is_successful_body = "success" in response.json() and response.json()["success"] is True
+            is_successful_body = False
+            try:
+                if response.json().get("success") is True:
+                    is_successful_body = True
+            except Exception:
+                pass
+
             has_cookie = "session" in response.cookies or "x-ui" in response.cookies
             
-            return response.status_code == 200 and (is_successful_body or has_cookie)
+            if response.status_code == 200 and (is_successful_body or has_cookie):
+                return True
+            return False
         except Exception:
             return False
 
     async def get_inbounds(self) -> List[Dict[str, Any]]:
-        if not self.session: return []
+        if not await self.login(): return []
+        
         try:
             base_url = self.api_url.rstrip('/')
             inbounds_url = f"{base_url}/panel/api/inbounds/list"
@@ -90,65 +103,11 @@ class SanaeiPanel(BasePanelManager):
         except Exception:
             return []
 
-// ===== FACTORY FUNCTION =====
+# ===== FACTORY FUNCTION =====
 def get_panel_manager(panel_type: str, api_url: str, username: str, password: str) -> Optional[BasePanelManager]:
-    panel_classes = { "marzban": MarzbanPanel, "sanaei": SanaeiPanel }
+    panel_classes = {
+        "marzban": MarzbanPanel,
+        "sanaei": SanaeiPanel,
+    }
     manager_class = panel_classes.get(panel_type)
     return manager_class(api_url, username, password) if manager_class else None
-```**📖 توضیح تغییرات:**
-*   **Context Manager (`__aenter__`, `__aexit__`)**: این یک روش بسیار حرفه‌ای در پایتون است. به ما اجازه می‌دهد تا با `async with` از `PanelManager` استفاده کنیم. این کار تضمین می‌کند که لاگین به صورت خودکار انجام شده و در انتها `session` بسته می‌شود.
-*   **`get_inbounds`**: این متد جدید در هر کلاس پیاده‌سازی شده. برای `SanaeiPanel`، به آدرس واقعی API یعنی `/panel/api/inbounds/list` متصل می‌شود. برای `MarzbanPanel` فعلاً یک مقدار تستی برمی‌گردانیم چون منطق پلن در مرزبان متفاوت است و بعداً آن را تکمیل می‌کنیم.
-
-#### **`bot/keyboards.py` (فайл ویرایش شده)**
-یک تابع جدید برای ساخت کیبورد پلن‌ها اضافه می‌کنیم.
-
-```python
-// ===== IMPORTS & DEPENDENCIES =====
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from typing import List, Dict, Any
-
-# ===== USER KEYBOARDS =====
-def get_main_menu_keyboard():
-    # ... (code remains the same)
-    keyboard = [
-        [InlineKeyboardButton("🛒 خرید سرویس", callback_data="buy_service")],
-        [InlineKeyboardButton("⚙️ سرویس‌های من", callback_data="my_services")],
-        [
-            InlineKeyboardButton("💰 کیف پول", callback_data="wallet"),
-            InlineKeyboardButton("📞 پشتیبانی", callback_data="support")
-        ],
-    ]
-    return InlineKeyboardMarkup(keyboard)
-
-def build_plans_keyboard(inbounds: List[Dict[str, Any]]) -> InlineKeyboardMarkup:
-    """Dynamically builds a keyboard for service plans from inbounds."""
-    keyboard = []
-    for inbound in inbounds:
-        # 'remark' is the plan name in x-ui panels
-        plan_name = inbound.get("remark", f"پلن {inbound.get('id')}")
-        # We create a callback_data like 'select_plan_1' where 1 is the inbound ID
-        callback_data = f"select_plan_{inbound.get('id')}"
-        keyboard.append([InlineKeyboardButton(f"🚀 {plan_name}", callback_data=callback_data)])
-    
-    # Add a back button
-    keyboard.append([InlineKeyboardButton("⬅️ بازگشت", callback_data="start_menu")])
-    return InlineKeyboardMarkup(keyboard)
-
-# ===== ADMIN KEYBOARDS =====
-def get_admin_main_menu_keyboard():
-    # ... (code remains the same)
-    keyboard = [
-        [InlineKeyboardButton("🔧 مدیریت پنل‌ها", callback_data="admin_manage_panels")],
-        [InlineKeyboardButton("📊 آمار ربات", callback_data="admin_stats")],
-        [InlineKeyboardButton("⚙️ تنظیمات", callback_data="admin_settings")],
-        [InlineKeyboardButton("↩️ بازگشت به منوی کاربری", callback_data="user_menu")],
-    ]
-    return InlineKeyboardMarkup(keyboard)
-# ... (rest of admin keyboards remain the same)
-def get_panel_management_keyboard():
-    keyboard = [
-        [InlineKeyboardButton("➕ افزودن پنل جدید", callback_data="admin_add_panel")],
-        [InlineKeyboardButton("📋 لیست پنل‌های ذخیره شده", callback_data="admin_list_panels")],
-        [InlineKeyboardButton("⬅️ بازگشت به منوی ادمین", callback_data="admin_menu")],
-    ]
-    return InlineKeyboardMarkup(keyboard)
