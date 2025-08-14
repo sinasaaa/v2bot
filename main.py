@@ -35,14 +35,14 @@ from bot.handlers.admin_handlers import (
     PANEL_PASSWORD,
 )
 
-// ===== CONFIGURATION & CONSTANTS =====
+# ===== CONFIGURATION & CONSTANTS =====
 user_model.Base.metadata.create_all(bind=engine)
 panel_model.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="V2Ray Sales Bot")
 ptb_app: Application | None = None
 
-// ===== CORE BUSINESS LOGIC =====
+# ===== CORE BUSINESS LOGIC =====
 async def setup_telegram_bot():
     global ptb_app
     ptb_app = Application.builder().token(settings.TELEGRAM_BOT_TOKEN).build()
