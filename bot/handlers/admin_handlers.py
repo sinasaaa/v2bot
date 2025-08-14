@@ -1,4 +1,4 @@
-// ===== IMPORTS & DEPENDENCIES =====
+# ===== IMPORTS & DEPENDENCIES =====
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.constants import ParseMode
 from telegram.ext import (
