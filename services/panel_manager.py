@@ -21,7 +21,11 @@ class BasePanelManager(ABC):
         pass
     
     async def __aenter__(self):
-        self.session = httpx.AsyncClient(verify=False, timeout=10.0)
+        # Simulate a browser User-Agent, as some panels might require it.
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        self.session = httpx.AsyncClient(verify=False, timeout=15.0, headers=headers)
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -46,23 +50,34 @@ class MarzbanPanel(BasePanelManager):
 
     async def get_inbounds(self) -> List[Dict[str, Any]]:
         if not await self.login(): return []
-        print("Marzban get_inbounds is currently a placeholder.")
+        # This is a placeholder and needs to be implemented based on Marzban's logic
         return [{"id": 1, "remark": "پلن پیش‌فرض مرزبان"}] 
 
 
-# ===== SANAEI (X-UI) PANEL MANAGER =====
+# ===== SANAEI (X-UI) PANEL MANAGER (Final Version based on Mirza Bot Code) =====
 class SanaeiPanel(BasePanelManager):
     async def login(self) -> bool:
         if not self.session: return False
         try:
             base_url = self.api_url.rstrip('/')
             login_url = f"{base_url}/login"
+            # Mirza bot sends data as 'application/x-www-form-urlencoded'
             data = {"username": self.username, "password": self.password}
+            
+            print(f"[Sanaei Final] Attempting login to: {login_url}")
             response = await self.session.post(login_url, data=data)
+            
+            print(f"[Sanaei Final] Login response status: {response.status_code}")
+            print(f"[Sanaei Final] Login response cookies: {self.session.cookies.keys()}")
+
             if response.status_code == 200 and ("session" in self.session.cookies or "x-ui" in self.session.cookies):
+                print("[Sanaei Final] Login SUCCESSFUL.")
                 return True
+
+            print(f"[Sanaei Final] Login FAILED. Response text: {response.text[:200]}") # Show first 200 chars
             return False
-        except Exception:
+        except Exception as e:
+            print(f"[Sanaei Final] Login EXCEPTION: {e}")
             return False
 
     async def get_inbounds(self) -> List[Dict[str, Any]]:
@@ -71,36 +86,37 @@ class SanaeiPanel(BasePanelManager):
         
         try:
             base_url = self.api_url.rstrip('/')
-            # <<<--- THE FINAL FIX ATTEMPT IS HERE ---<<<
-            # Trying a different, more common API endpoint for inbounds
-            inbounds_url = f"{base_url}/api/inbounds"
-            print(f"Attempting to fetch inbounds from NEW URL: {inbounds_url}")
+            inbounds_url = f"{base_url}/panel/api/inbounds/list"
+            print(f"[Sanaei Final] Fetching inbounds from: {inbounds_url}")
             
             response = await self.session.get(inbounds_url)
             
-            if response.status_code != 200 or not response.text:
-                 print(f"Failed to fetch from new URL. Status: {response.status_code}, Body Empty: {not response.text}")
-                 return []
-
+            print(f"[Sanaei Final] Get inbounds response status: {response.status_code}")
+            if not response.text:
+                print("[Sanaei Final] Get inbounds response body is EMPTY.")
+                return []
+                
             response_data = response.json()
             if not response_data.get("success"):
-                 print("Response from new URL was not successful.")
-                 return []
-            
-            # This is our list of "plans"
-            plans = []
+                print(f"[Sanaei Final] API reports failure: {response_data.get('msg')}")
+                return []
+                
             raw_inbounds = response_data.get("obj", [])
+            plans = []
             for inbound in raw_inbounds:
-                plan_name = inbound.get("remark", f"پلن {inbound.get('id')}")
-                plan_id = inbound.get("id")
-                if plan_name and plan_id is not None:
-                    plans.append({"id": plan_id, "remark": plan_name})
+                remark = inbound.get("remark")
+                inbound_id = inbound.get("id")
+                if remark and inbound_id is not None:
+                    plans.append({"id": inbound_id, "remark": remark})
 
-            print(f"Successfully extracted {len(plans)} plans from new URL.")
+            print(f"Successfully extracted {len(plans)} plans.")
             return plans
             
+        except json.JSONDecodeError:
+            print(f"[Sanaei Final] JSONDecodeError. Raw response was: {response.text[:500]}") # Show first 500 chars
+            return []
         except Exception as e:
-            print(f"An exception occurred in get_inbounds with new URL: {e}")
+            print(f"[Sanaei Final] An exception occurred in get_inbounds: {e}")
             return []
 
 
