@@ -1,4 +1,4 @@
-// ===== IMPORTS & DEPENDENCIES =====
+# ===== IMPORTS & DEPENDENCIES =====
 from functools import wraps
 from telegram import Update
 from telegram.ext import ContextTypes
