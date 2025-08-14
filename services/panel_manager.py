@@ -25,7 +25,8 @@ class BasePanelManager(ABC):
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
             'Accept': 'application/json',
         }
-        self.session = httpx.AsyncClient(verify=False, timeout=15.0, headers=headers)
+        # Enable following redirects to handle 301/302 responses from the panel.
+        self.session = httpx.AsyncClient(verify=False, timeout=15.0, headers=headers, follow_redirects=True)
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -35,7 +36,6 @@ class BasePanelManager(ABC):
 
 # ===== MARZBAN PANEL MANAGER =====
 class MarzbanPanel(BasePanelManager):
-    # ... (Implementation remains the same)
     async def login(self) -> bool:
         if not self.session: return False
         try:
@@ -62,17 +62,12 @@ class SanaeiPanel(BasePanelManager):
             base_url = self.api_url.rstrip('/')
             login_url = f"{base_url}/login"
             data = {"username": self.username, "password": self.password}
-            
             response = await self.session.post(login_url, data=data)
             
             if response.status_code == 200 and ("session" in self.session.cookies or "x-ui" in self.session.cookies):
-                print("[Alireza Panel] Login SUCCESSFUL.")
                 return True
-
-            print(f"[Alireza Panel] Login FAILED. Status: {response.status_code}")
             return False
-        except Exception as e:
-            print(f"[Alireza Panel] Login EXCEPTION: {e}")
+        except Exception:
             return False
 
     async def get_inbounds(self) -> List[Dict[str, Any]]:
@@ -81,21 +76,25 @@ class SanaeiPanel(BasePanelManager):
         
         try:
             base_url = self.api_url.rstrip('/')
-            # <<<--- THE FINAL, CORRECT FIX IS HERE ---<<<
-            # Using the API path for Alireza's fork of x-ui panel.
-            inbounds_url = f"{base_url}/xui/API/inbounds" # Note the different path
-            print(f"Attempting to fetch inbounds from Alireza API URL: {inbounds_url}")
+            # Use the most likely standard API path; `follow_redirects=True` will handle variations.
+            inbounds_url = f"{base_url}/panel/api/inbounds/list"
+            print(f"Attempting to fetch inbounds (will follow redirects): {inbounds_url}")
             
             response = await self.session.get(inbounds_url)
             
-            print(f"[Alireza Panel] Get inbounds response status: {response.status_code}")
+            print(f"[Final] Get inbounds response status: {response.status_code}")
             
-            if response.status_code != 200 or not response.text:
-                 return []
-
+            if response.status_code != 200:
+                print(f"[Final] Request failed after redirects. Final URL: {response.url}, Text: {response.text[:200]}")
+                return []
+            
+            if not response.text:
+                print("[Final] Response body is EMPTY after redirects.")
+                return []
+                
             response_data = response.json()
             if not response_data.get("success"):
-                 return []
+                return []
             
             plans = []
             raw_inbounds = response_data.get("obj", [])
@@ -105,11 +104,14 @@ class SanaeiPanel(BasePanelManager):
                 if remark and inbound_id is not None:
                     plans.append({"id": inbound_id, "remark": remark})
 
-            print(f"Successfully extracted {len(plans)} plans from Alireza panel.")
+            print(f"Successfully extracted {len(plans)} plans.")
             return plans
             
+        except json.JSONDecodeError:
+            print(f"[Final] JSONDecodeError. Raw response was: {response.text[:500]}")
+            return []
         except Exception as e:
-            print(f"An exception occurred in Alireza get_inbounds: {e}")
+            print(f"An exception occurred in get_inbounds: {e}")
             return []
 
 
