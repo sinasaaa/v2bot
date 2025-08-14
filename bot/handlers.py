@@ -1,4 +1,4 @@
-// ===== IMPORTS & DEPENDENCIES =====
+# ===== IMPORTS & DEPENDENCIES =====
 from telegram import Update
 from telegram.ext import ContextTypes
 from sqlalchemy.orm import Session
