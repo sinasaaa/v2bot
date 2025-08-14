@@ -1,4 +1,4 @@
-// ===== IMPORTS & DEPENDENCIES =====
+# ===== IMPORTS & DEPENDENCIES =====
 from pydantic_settings import BaseSettings
 
 # ===== CONFIGURATION & CONSTANTS =====
