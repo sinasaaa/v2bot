@@ -28,7 +28,6 @@ class BasePanelManager(ABC):
         if self.session and not self.session.is_closed:
             await self.session.aclose()
 
-
 # ===== MARZBAN PANEL MANAGER =====
 class MarzbanPanel(BasePanelManager):
     async def login(self) -> bool:
@@ -53,71 +52,75 @@ class MarzbanPanel(BasePanelManager):
 # ===== SANAEI (X-UI) PANEL MANAGER =====
 class SanaeiPanel(BasePanelManager):
     async def login(self) -> bool:
-        if not self.session:
-            print("[SanaeiPanel] Login failed: session is not initialized.")
-            return False
-        
-        print("[SanaeiPanel] Attempting to login...")
+        if not self.session: return False
         try:
             base_url = self.api_url.rstrip('/')
             login_url = f"{base_url}/login"
             data = {"username": self.username, "password": self.password}
             response = await self.session.post(login_url, data=data)
-            
-            is_successful_body = False
-            try:
-                if response.json().get("success") is True: is_successful_body = True
-            except Exception: pass
-
-            has_cookie = "session" in self.session.cookies or "x-ui" in self.session.cookies
-            
-            if response.status_code == 200 and (is_successful_body or has_cookie):
-                print("[SanaeiPanel] Login SUCCESSFUL. Cookies are now stored in session.")
+            if response.status_code == 200 and ("session" in self.session.cookies or "x-ui" in self.session.cookies):
                 return True
-            
-            print(f"[SanaeiPanel] Login FAILED. Status: {response.status_code}, Response: {response.text}")
             return False
-        except Exception as e:
-            print(f"[SanaeiPanel] Login EXCEPTION: {e}")
+        except Exception:
             return False
 
     async def get_inbounds(self) -> List[Dict[str, Any]]:
-        # The context manager in user_handlers.py ensures session is created.
-        # This method assumes we are already in a context.
-        if not self.session:
-             print("[SanaeiPanel] get_inbounds failed because session is not initialized.")
-             return []
-
-        if not await self.login():
-            print("[SanaeiPanel] get_inbounds failed because login was unsuccessful.")
+        """
+        In x-ui, 'inbounds' are connection protocols, and inside each inbound,
+        there are 'clients' which we will treat as sales plans.
+        This function will extract the first client from each inbound as a plan.
+        """
+        if not self.session or not await self.login():
             return []
         
         try:
             base_url = self.api_url.rstrip('/')
             inbounds_url = f"{base_url}/panel/api/inbounds/list"
-            print(f"[SanaeiPanel] Fetching inbounds from URL: {inbounds_url}")
-            
-            # The session now holds the login cookies, so this request should be authenticated.
             response = await self.session.get(inbounds_url)
             
-            print(f"[SanaeiPanel] Get inbounds response status: {response.status_code}")
-            print(f"[SanaeiPanel] Get inbounds raw response text: {response.text}") # Print raw text for debugging
-            
-            # Now, try to parse JSON
-            response_data = response.json()
-            if response_data.get("success"):
-                inbounds_list = response_data.get("obj", [])
-                print(f"[SanaeiPanel] Successfully parsed {len(inbounds_list)} inbounds.")
-                return inbounds_list
-            else:
-                print("[SanaeiPanel] Get inbounds request was not successful according to JSON body.")
+            if response.status_code != 200:
                 return []
-        except json.JSONDecodeError as e:
-            print(f"[SanaeiPanel] JSONDecodeError: Failed to parse response as JSON. Error: {e}")
-            return []
+
+            response_data = response.json()
+            if not response_data.get("success"):
+                return []
+                
+            raw_inbounds = response_data.get("obj", [])
+            
+            # This will be our list of "plans"
+            plans = []
+            
+            for inbound in raw_inbounds:
+                try:
+                    # settings is a JSON string, so we need to parse it
+                    settings_str = inbound.get("settings", "{}")
+                    settings_obj = json.loads(settings_str)
+                    
+                    clients = settings_obj.get("clients", [])
+                    
+                    if clients:
+                        # We will treat the FIRST client of each inbound as a "plan template"
+                        first_client_as_plan = clients[0]
+                        
+                        # The "remark" of the inbound is the plan name
+                        plan_name = inbound.get("remark", f"پلن ناشناس {inbound.get('id')}")
+                        
+                        # The ID of the plan is the inbound's ID
+                        plan_id = inbound.get("id")
+                        
+                        plans.append({"id": plan_id, "remark": plan_name})
+
+                except (json.JSONDecodeError, KeyError) as e:
+                    print(f"Could not parse settings for inbound {inbound.get('id')}: {e}")
+                    continue
+
+            print(f"Successfully extracted {len(plans)} plans from inbounds.")
+            return plans
+            
         except Exception as e:
-            print(f"[SanaeiPanel] Get inbounds EXCEPTION: {e}")
+            print(f"An exception occurred in get_inbounds: {e}")
             return []
+
 
 # ===== FACTORY FUNCTION =====
 def get_panel_manager(panel_type: str, api_url: str, username: str, password: str) -> Optional[BasePanelManager]:
