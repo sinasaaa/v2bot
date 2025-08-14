@@ -18,7 +18,6 @@ from models import panel as panel_model
 
 from bot.handlers.common_handlers import start
 from bot.handlers.user_handlers import user_button_handler
-# Import all admin handlers including conversation parts
 from bot.handlers.admin_handlers import (
     admin_button_handler,
     start_add_panel_conversation,
@@ -26,7 +25,7 @@ from bot.handlers.admin_handlers import (
     receive_panel_type,
     receive_panel_url,
     receive_panel_username,
-    receive_panel_password,
+    receive_panel_password_and_validate,
     cancel_conversation,
     PANEL_NAME,
     PANEL_TYPE,
@@ -44,7 +43,9 @@ ptb_app: Application | None = None
 
 # ===== CORE BUSINESS LOGIC =====
 async def setup_telegram_bot():
+    """Initializes the Telegram bot application, runs post-init tasks, and sets the webhook."""
     global ptb_app
+    
     ptb_app = Application.builder().token(settings.TELEGRAM_BOT_TOKEN).build()
     await ptb_app.initialize()
 
@@ -56,16 +57,18 @@ async def setup_telegram_bot():
             PANEL_TYPE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_panel_type)],
             PANEL_URL: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_panel_url)],
             PANEL_USERNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_panel_username)],
-            PANEL_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_panel_password)],
+            PANEL_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_panel_password_and_validate)],
         },
         fallbacks=[CommandHandler('cancel', cancel_conversation)],
+        per_message=False
     )
 
     # Register handlers
-    ptb_app.add_handler(CommandHandler("start", start))
-    ptb_app.add_handler(add_panel_conv_handler) # Add conversation handler
+    # IMPORTANT: ConversationHandler must be added BEFORE other handlers that might catch the same updates.
+    ptb_app.add_handler(add_panel_conv_handler)
     
-    # The generic button handlers must be added AFTER the conversation handler
+    ptb_app.add_handler(CommandHandler("start", start))
+    
     ptb_app.add_handler(CallbackQueryHandler(admin_button_handler, pattern='^admin_.*$'))
     ptb_app.add_handler(CallbackQueryHandler(user_button_handler, pattern='^(?!admin_).*$'))
 
@@ -73,8 +76,8 @@ async def setup_telegram_bot():
     await ptb_app.bot.set_webhook(url=webhook_url)
     print(f"Webhook has been set to {webhook_url}")
 
-# ... (Rest of main.py remains the same) ...
 async def shutdown_telegram_bot():
+    """Shuts down the application and performs cleanup."""
     if ptb_app:
         await ptb_app.shutdown()
 
@@ -88,6 +91,7 @@ async def on_shutdown():
 
 @app.post("/telegram")
 async def telegram_webhook(request: Request):
+    """Processes incoming Telegram updates."""
     if ptb_app:
         update_data = await request.json()
         update = Update.de_json(data=update_data, bot=ptb_app.bot)
