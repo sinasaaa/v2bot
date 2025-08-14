@@ -1,62 +1,77 @@
 # ===== IMPORTS & DEPENDENCIES =====
 import httpx
 from abc import ABC, abstractmethod
+from typing import Optional
 
 # ===== BASE PANEL MANAGER (Interface) =====
 class BasePanelManager(ABC):
     """Abstract base class for all panel managers."""
     def __init__(self, api_url: str, username: str, password: str):
-        self.api_url = api_url.rstrip('/')
+        # Do not rstrip('/') here, as the panel path might be the root itself.
+        self.api_url = api_url
         self.username = username
         self.password = password
-        self.session = httpx.AsyncClient(verify=False) # verify=False for self-signed certs
 
     @abstractmethod
     async def login(self) -> bool:
         """Logs into the panel and returns True on success, False otherwise."""
         pass
 
-    async def close_session(self):
-        """Closes the httpx session."""
-        await self.session.aclose()
-
 # ===== MARZBAN PANEL MANAGER =====
 class MarzbanPanel(BasePanelManager):
     """Manager for Marzban panels."""
     async def login(self) -> bool:
         try:
-            login_url = f"{self.api_url}/api/admin/token"
-            data = {"username": self.username, "password": self.password}
-            response = await self.session.post(login_url, data=data)
+            # Marzban API path is fixed relative to the base URL
+            api_url = self.api_url.rstrip('/')
+            async with httpx.AsyncClient(verify=False) as client:
+                login_url = f"{api_url}/api/admin/token"
+                data = {"username": self.username, "password": self.password}
+                response = await client.post(login_url, data=data)
 
-            if response.status_code == 200 and "access_token" in response.json():
-                access_token = response.json()["access_token"]
-                self.session.headers.update({"Authorization": f"Bearer {access_token}"})
-                return True
-            return False
+                if response.status_code == 200 and "access_token" in response.json():
+                    return True
+                print(f"[Marzban Login Failed] Status: {response.status_code}, Response: {response.text}")
+                return False
         except Exception as e:
             print(f"[Marzban Login Error] {e}")
             return False
 
 # ===== SANAEI (X-UI) PANEL MANAGER =====
 class SanaeiPanel(BasePanelManager):
-    """Manager for Sanaei (X-UI) panels."""
+    """
+    Manager for Sanaei (X-UI) panels.
+    It now correctly handles panels with a secret path.
+    The user must provide the full base URL including the secret path.
+    Example: https://panel.example.com:2053/YourSecretPath
+    """
     async def login(self) -> bool:
         try:
-            login_url = f"{self.api_url}/login"
-            data = {"username": self.username, "password": self.password}
-            response = await self.session.post(login_url, data=data)
+            # Ensure the base URL does not end with a slash, then add /login
+            base_url = self.api_url.rstrip('/')
+            login_url = f"{base_url}/login"
             
-            # Successful login in x-ui often results in a cookie and a 200 status code
-            if response.status_code == 200 and "session" in response.cookies:
-                return True
+            async with httpx.AsyncClient(verify=False, timeout=10.0) as client:
+                print(f"[Sanaei Login Attempt] URL: {login_url}") # Debugging line
+                data = {"username": self.username, "password": self.password}
+                response = await client.post(login_url, data=data)
+                
+                # Check for successful login cookie
+                if response.status_code == 200 and "session" in response.cookies:
+                    print(f"[Sanaei Login Success] Status: {response.status_code}")
+                    return True
+
+                print(f"[Sanaei Login Failed] Status: {response.status_code}, Response: {response.text}")
+                return False
+        except httpx.ConnectError as e:
+            print(f"[Sanaei Connection Error] Could not connect to {self.api_url}. Error: {e}")
             return False
         except Exception as e:
-            print(f"[Sanaei Login Error] {e}")
+            print(f"[Sanaei Login Error] An unexpected error occurred: {e}")
             return False
 
 # ===== FACTORY FUNCTION =====
-def get_panel_manager(panel_type: str, api_url: str, username: str, password: str) -> BasePanelManager | None:
+def get_panel_manager(panel_type: str, api_url: str, username: str, password: str) -> Optional[BasePanelManager]:
     """Factory function to get the correct panel manager instance."""
     panel_classes = {
         "marzban": MarzbanPanel,
