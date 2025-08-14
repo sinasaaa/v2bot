@@ -65,12 +65,18 @@ async def telegram_webhook(request: Request):
     This endpoint is the webhook for Telegram.
     It receives updates from Telegram and processes them.
     """
-    if ptb_app and ptb_app.initialized:
-        update_data = await request.json()
-        update = Update.de_json(data=update_data, bot=ptb_app.bot)
-        await ptb_app.process_update(update)
-        return {"status": "ok"}
-    return {"status": "bot not initialized"}
+    # The fix is to use `_initialized` with a leading underscore
+    if ptb_app and ptb_app._initialized: # <--- CORRECTED LINE
+        try:
+            update_data = await request.json()
+            update = Update.de_json(data=update_data, bot=ptb_app.bot)
+            await ptb_app.process_update(update)
+            return {"status": "ok"}
+        except Exception as e:
+            print(f"Error processing update: {e}")
+            return {"status": "error"}
+            
+    return {"status": "bot not initialized", "initialized": ptb_app._initialized if ptb_app else "None"}
 
 @app.get("/")
 def read_root():
